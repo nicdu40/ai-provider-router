@@ -15,7 +15,8 @@ export async function* parseOpenAiSse(response: Response, rateLimitInfo?: RateLi
       model: typeof payload.model === 'string' ? payload.model : undefined,
       delta: {
         ...(typeof choice?.delta?.role === 'string' ? { role: choice.delta.role } : {}),
-        ...(typeof choice?.delta?.content === 'string' ? { content: choice.delta.content } : {})
+        ...(typeof choice?.delta?.content === 'string' ? { content: choice.delta.content } : {}),
+        ...(choice?.delta?.tool_calls ? { tool_calls: choice.delta.tool_calls } : {})
       },
       ...(choice?.finish_reason !== undefined ? { finish_reason: choice.finish_reason } : {}),
       ...(payload.usage ? { usage: payload.usage as ChatResponse['usage'] } : {}),

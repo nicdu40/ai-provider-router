@@ -7,7 +7,16 @@ export interface ModelInfo {
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | null | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+  tool_calls?: {
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }[];
+  tool_call_id?: string;
 }
 
 export interface ChatRequest {
@@ -15,6 +24,20 @@ export interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   stream?: boolean;
+  tools?: {
+    type: 'function';
+    function: {
+      name: string;
+      description?: string;
+      parameters: object;
+    };
+  }[];
+  tool_choice?: 'auto' | 'none' | {
+    type: 'function';
+    function: {
+      name: string;
+    };
+  };
 }
 
 export interface ChatCompletionChoice {
@@ -41,7 +64,16 @@ export interface ChatStreamChunk {
   id?: string;
   created?: number;
   model?: string;
-  delta: Partial<ChatMessage>;
+  delta: {
+    role?: 'system' | 'user' | 'assistant' | 'tool';
+    content?: string | null;
+    tool_calls?: {
+      index: number;
+      id?: string;
+      type?: 'function';
+      function?: { name?: string; arguments?: string };
+    }[];
+  };
   finish_reason?: string | null;
   usage?: ChatResponse['usage'];
   rateLimitInfo?: RateLimitInfo;

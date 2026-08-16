@@ -6,7 +6,7 @@ import { parseOpenAiSse } from './streaming';
 export class OpenRouterProvider implements Provider {
   public readonly priority = 80;
 
-  constructor(private readonly apiKey: string = process.env.OPENROUTER_API_KEY ?? '') {}
+  constructor(private readonly apiKey: string = process.env.OPENROUTER_API_KEY ?? '') { }
 
   name(): string {
     return 'openrouter';
@@ -36,18 +36,18 @@ export class OpenRouterProvider implements Provider {
     let response: Response;
     try {
       response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3040',
-        'X-Title': 'AI Provider Router'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: request.messages,
-        temperature: request.temperature ?? 0.7
-      })
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:3040',
+          'X-Title': 'AI Provider Router'
+        },
+        body: JSON.stringify({
+          ...request,
+          model: 'openai/gpt-4o-mini',
+          stream: false,
+        })
       });
     } catch (error) {
       throw createProviderErrorFromException(error, this.name());
@@ -58,24 +58,9 @@ export class OpenRouterProvider implements Provider {
       throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
     }
 
-    const payload = await response.json() as any;
-    const text = payload?.choices?.[0]?.message?.content ?? 'No response returned by OpenRouter';
-
-    return {
-      id: payload?.id ?? `or-${Date.now()}`,
-      object: payload?.object ?? 'chat.completion',
-      created: payload?.created ?? Math.floor(Date.now() / 1000),
-      model: payload?.model ?? request.model ?? 'openai/gpt-4o-mini',
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: text },
-          finish_reason: payload?.choices?.[0]?.finish_reason ?? 'stop'
-        }
-      ],
-      ...(payload?.usage ? { usage: payload.usage } : {}),
-      ...(rateLimitInfo ? { rateLimitInfo } : {})
-    };
+    const payload = await response.json() as ChatResponse;
+    payload.rateLimitInfo = rateLimitInfo;
+    return payload;
   }
 
   async *streamChat(request: ChatRequest, signal?: AbortSignal) {
@@ -85,7 +70,7 @@ export class OpenRouterProvider implements Provider {
       response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST', signal,
         headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'http://localhost:3040', 'X-Title': 'AI Provider Router' },
-        body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: request.messages, temperature: request.temperature ?? 0.7, stream: true })
+        body: JSON.stringify({ ...request, model: 'openai/gpt-4o-mini', stream: true })
       });
     } catch (error) {
       throw createProviderErrorFromException(error, this.name());

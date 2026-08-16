@@ -8,17 +8,21 @@ const cooldownSeconds = Number(process.env.COOLDOWN_SECONDS ?? 60);
 const geminiEnabled = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
 const groqEnabled = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim().length > 0);
 const openrouterEnabled = Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim().length > 0);
+const nvidiaEnabled = Boolean(process.env.NVIDIA_API_KEY && process.env.NVIDIA_API_KEY.trim().length > 0);
 
-export default {
+const config = {
   server: {
     port
+  },
+  router: {
+    cooldownSeconds
   },
   providers: {
     gemini: { enabled: geminiEnabled, priority: 100 },
     groq: { enabled: groqEnabled, priority: 90 },
-    openrouter: { enabled: openrouterEnabled, priority: 80 }
+    openrouter: { enabled: openrouterEnabled, priority: 80 },
+    nvidia: { enabled: nvidiaEnabled, priority: 95 }
   },
-  cooldownSeconds,
   errorClassification: {
     FATAL: [401, 403],
     RETRYABLE: [429],
@@ -27,3 +31,5 @@ export default {
     UNKNOWN: []
   }
 };
+
+export default config;

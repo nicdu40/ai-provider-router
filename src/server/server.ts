@@ -1,10 +1,10 @@
 import express from 'express';
-import config from '../config/config';
 import { logger } from '../logging/logger';
 import { GeminiProvider } from '../providers/GeminiProvider';
 import { GroqProvider } from '../providers/GroqProvider';
 import { MockProvider } from '../providers/MockProvider';
 import { OpenRouterProvider } from '../providers/OpenRouterProvider';
+import { NvidiaProvider } from '../providers/NvidiaProvider';
 import { ChatStreamChunk, Provider } from '../providers/Provider';
 import { Router } from '../router/Router';
 import { QuotaManager } from '../quota/QuotaManager';
@@ -12,9 +12,10 @@ import { ChatCompletionRequest, ChatRequest } from '../types';
 
 function createConfiguredProviders(): Provider[] {
   const providers: Provider[] = [];
-  if (config.providers.gemini.enabled) providers.push(new GeminiProvider(process.env.GEMINI_API_KEY ?? ''));
-  if (config.providers.groq.enabled) providers.push(new GroqProvider(process.env.GROQ_API_KEY ?? ''));
-  if (config.providers.openrouter.enabled) providers.push(new OpenRouterProvider(process.env.OPENROUTER_API_KEY ?? ''));
+  providers.push(new GeminiProvider(process.env.GEMINI_API_KEY ?? ''));
+  providers.push(new GroqProvider(process.env.GROQ_API_KEY ?? ''));
+  providers.push(new NvidiaProvider());
+  providers.push(new OpenRouterProvider(process.env.OPENROUTER_API_KEY ?? ''));
 
   if (providers.length === 0) {
     providers.push(new MockProvider());
@@ -29,54 +30,56 @@ export function createApp(providers?: Provider[], quotaManager?: QuotaManager) {
   const router = new Router(providers ?? createConfiguredProviders(), quotaManager);
 
   app.get('/v1/models', async (_req, res) => {
-  logger.info('GET /v1/models');
+    logger.info('GET /v1/models');
 
-  const models = await router.getModels();
+    const models = await router.getModels();
 
-  return res.json({
-    data: models
-  });
+    return res.json({
+      data: models
+    });
   });
 
   app.post('/v1/chat/completions', async (req, res) => {
-  logger.master('created', { method: 'POST', path: '/v1/chat/completions' });
-  const body = req.body as ChatCompletionRequest;
+    logger.master('created', { method: 'POST', path: '/v1/chat/completions' });
+    const body = req.body as ChatCompletionRequest;
 
-  if (!body || !Array.isArray(body.messages)) {
-    logger.warn('Bad request: missing messages');
-    return res.status(400).json({ error: 'Invalid request: messages required' });
-  }
-
-  try {
-    const request: ChatRequest = {
-      model: body.model || 'router-auto',
-      messages: body.messages,
-      temperature: body.temperature,
-      stream: body.stream === true
-    };
-
-    if (request.stream) {
-      return streamResponse(router, request, body.messages.length, req, res);
+    if (!body || !Array.isArray(body.messages)) {
+      logger.warn('Bad request: missing messages');
+      return res.status(400).json({ error: 'Invalid request: messages required' });
     }
 
-    const response = await router.route(request);
+    try {
+      const request: ChatRequest = {
+        model: body.model || 'router-auto',
+        messages: body.messages,
+        temperature: body.temperature,
+        stream: body.stream === true,
+        tools: body.tools,
+        tool_choice: body.tool_choice,
+      };
 
-    logger.master('summary', { messages: body.messages.length });
-
-    logger.router('response', { provider: response.model ?? 'router-auto', status: 200 });
-
-    return res.json(response);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.router('error', { message: errorMessage, status: 503 });
-    return res.status(503).json({
-      error: {
-        message: errorMessage,
-        type: 'server_error',
-        code: 'provider_unavailable'
+      if (request.stream) {
+        return streamResponse(router, request, body.messages.length, req, res);
       }
-    });
-  }
+
+      const response = await router.route(request);
+
+      logger.master('summary', { messages: body.messages.length });
+
+      logger.router('response', { provider: response.model ?? 'router-auto', status: 200 });
+
+      return res.json(response);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.router('error', { message: errorMessage, status: 503 });
+      return res.status(503).json({
+        error: {
+          message: errorMessage,
+          type: 'server_error',
+          code: 'provider_unavailable'
+        }
+      });
+    }
   });
 
   return app;
@@ -157,7 +160,7 @@ function openAiError(message: string) {
 const app = createApp();
 
 if (require.main === module) {
-  const port = config.server.port || 3040;
+  const port = parseInt(process.env.PORT || '3040', 10);
 
   app.listen(port, () => {
     logger.info(`AI Provider Router listening on port ${port}`);
