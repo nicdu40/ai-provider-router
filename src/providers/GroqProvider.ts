@@ -1,19 +1,18 @@
-import { ChatRequest, ChatResponse, ModelInfo, Provider, ProviderHealth } from './Provider';
-import { createProviderErrorFromException, createProviderErrorFromResponse } from '../errors/createProviderError';
-import { parseGroqRateLimitInfo } from '../quota/RateLimitInfo';
-import { parseOpenAiSse } from './streaming';
+import { ModelInfo, ProviderHealth } from './Provider';
+import { OpenAiCompatibleProvider } from './OpenAiCompatibleProvider';
+import { parseGroqRateLimitInfo, RateLimitInfo } from '../quota/RateLimitInfo';
 
-export class GroqProvider implements Provider {
+export class GroqProvider extends OpenAiCompatibleProvider {
   public readonly priority = 90;
 
-  constructor(private readonly apiKey: string = process.env.GROQ_API_KEY ?? '') { }
+  constructor(
+    apiKey: string = process.env.GROQ_API_KEY ?? '',
+  ) {
+    super(apiKey, 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile');
+  }
 
   name(): string {
     return 'groq';
-  }
-
-  async isAvailable(): Promise<boolean> {
-    return Boolean(this.apiKey && this.apiKey.trim().length > 0);
   }
 
   async getModels(): Promise<ModelInfo[]> {
@@ -28,53 +27,14 @@ export class GroqProvider implements Provider {
     };
   }
 
-  async chat(request: ChatRequest): Promise<ChatResponse> {
-    if (!(await this.isAvailable())) {
-      throw new Error('Groq API key is missing');
-    }
-
-    let response: Response;
-    try {
-      response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          ...request,
-          model: 'llama-3.3-70b-versatile',
-          stream: false,
-        })
-      });
-    } catch (error) {
-      throw createProviderErrorFromException(error, this.name());
-    }
-
-    const rateLimitInfo = parseGroqRateLimitInfo(response.headers);
-    if (!response.ok) {
-      throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
-    }
-
-    const payload = await response.json() as ChatResponse;
-    payload.rateLimitInfo = rateLimitInfo;
-    return payload;
+  protected getHeaders(): Record<string, string> {
+    return {
+      'Authorization': `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+    };
   }
 
-  async *streamChat(request: ChatRequest, signal?: AbortSignal) {
-    if (!(await this.isAvailable())) throw new Error('Groq API key is missing');
-    let response: Response;
-    try {
-      response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST', signal,
-        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, model: 'llama-3.3-70b-versatile', stream: true, stream_options: { include_usage: true } })
-      });
-    } catch (error) {
-      throw createProviderErrorFromException(error, this.name());
-    }
-    const rateLimitInfo = parseGroqRateLimitInfo(response.headers);
-    if (!response.ok) throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
-    yield* parseOpenAiSse(response, rateLimitInfo);
+  protected parseRateLimitInfo(headers: Headers): RateLimitInfo | undefined {
+    return parseGroqRateLimitInfo(headers);
   }
 }

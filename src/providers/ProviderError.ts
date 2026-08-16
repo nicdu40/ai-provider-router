@@ -5,7 +5,8 @@ export type ErrorCategory =
   | 'NETWORK_ERROR'
   | 'UNKNOWN'
   | 'BAD_REQUEST'
-  | 'MODEL_UNAVAILABLE';
+  | 'MODEL_UNAVAILABLE'
+  ;
 
 export class ProviderError extends Error {
   public readonly status?: number;

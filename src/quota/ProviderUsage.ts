@@ -7,6 +7,7 @@ export interface ProviderUsage {
   lastErrorAt?: number;
   lastRateLimitAt?: number;
   cooldownUntil?: number;
+  disabledUntilRestart?: boolean;
   available: boolean;
   rateLimitInfo?: RateLimitInfo;
 }

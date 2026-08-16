@@ -62,8 +62,8 @@ export class Router {
 
         // If the provider reports its configured model is unavailable, put it in cooldown
         if (providerError.category === 'MODEL_UNAVAILABLE') {
-          logger.warn(`${provider.name()} reported model unavailable (${status}) — putting into cooldown`);
-          this.quotaManager.recordRateLimit(provider.name());
+          logger.warn(`${provider.name()} reported model unavailable (${status}) — disabling until restart`);
+          this.quotaManager.recordModelUnavailable(provider.name());
           continue; // try next provider
         }
 
@@ -77,8 +77,8 @@ export class Router {
         if (retryAfterMs !== undefined) {
           logger.warn(`${provider.name()} returned ${status} — applying Retry-After cooldown`);
           this.quotaManager.recordRateLimit(provider.name(), retryAfterMs);
-        } else if (retryable && status === 429) {
-          logger.warn(`${provider.name()} returned ${status} — placing in cooldown for ${config.cooldownSeconds}s`);
+        } else if (retryable && status === 429) { // Correctly access the config value
+          logger.warn(`${provider.name()} returned ${status} — placing in cooldown for ${config.router.cooldownSeconds}s`);
           this.quotaManager.recordRateLimit(provider.name());
         } else if (retryable) {
           logger.warn(`${provider.name()} returned ${category ?? 'retryable error'} — trying fallback`);
@@ -135,8 +135,8 @@ export class Router {
         }
         // If the provider reports its model is unavailable, cool it down and try the next provider
         if (providerError.category === 'MODEL_UNAVAILABLE') {
-          logger.warn(`${provider.name()} reported model unavailable (${status}) — putting into cooldown`);
-          this.quotaManager.recordRateLimit(provider.name());
+          logger.warn(`${provider.name()} reported model unavailable (${status}) — disabling until restart`);
+          this.quotaManager.recordModelUnavailable(provider.name());
           continue;
         }
         // Logging for stream errors and pre-start failures
@@ -156,8 +156,8 @@ export class Router {
         if (retryAfterMs !== undefined) {
           logger.warn(`${provider.name()} returned ${status} — applying Retry-After cooldown`);
           this.quotaManager.recordRateLimit(provider.name(), retryAfterMs);
-        } else if (providerError.retryable && providerError.status === 429) {
-          logger.warn(`${provider.name()} returned ${status} — placing in cooldown for ${config.cooldownSeconds}s`);
+        } else if (providerError.retryable && providerError.status === 429) { // Correctly access the config value
+          logger.warn(`${provider.name()} returned ${status} — placing in cooldown for ${config.router.cooldownSeconds}s`);
           this.quotaManager.recordRateLimit(provider.name());
         } else {
           logger.warn(`${provider.name()} returned ${providerError.category ?? 'retryable error'} — trying fallback`);

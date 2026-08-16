@@ -15,7 +15,7 @@ describe('GeminiProvider', () => {
 
     it('should handle a simple chat completion', async () => {
         nock(BASE_URL)
-            .post('/v1beta/models/gemini-1.5-flash:generateContent')
+            .post('/v1beta/models/gemini-1.5-flash-latest:generateContent')
             .reply(200, {
                 candidates: [{
                     content: { parts: [{ text: 'Hello from Gemini' }] },
@@ -31,7 +31,7 @@ describe('GeminiProvider', () => {
         const stream = `data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}\n\ndata: {"candidates":[{"content":{"parts":[{"text":" Gemini"}]}}]}`;
 
         nock(BASE_URL)
-            .post('/v1beta/models/gemini-1.5-flash:streamGenerateContent')
+            .post('/v1beta/models/gemini-1.5-flash-latest:streamGenerateContent')
             .reply(200, stream, { 'Content-Type': 'text/event-stream' });
 
         const result = provider.streamChat({ messages: [{ role: 'user', content: 'Hi' }] });
@@ -142,5 +142,24 @@ describe('GeminiProvider', () => {
 
         // Check that supported fields remain
         expect(sanitized.type).toBe('object');
+    });
+
+    it('should throw a MODEL_UNAVAILABLE error for a specific 404 message', async () => {
+        const errorResponse = {
+            error: {
+                code: 404,
+                message: 'This model is no longer available to new users.',
+                status: 'NOT_FOUND',
+            },
+        };
+
+        nock(BASE_URL)
+            .post('/v1beta/models/gemini-1.5-flash-latest:generateContent')
+            .reply(404, errorResponse);
+
+        const request: ChatRequest = { messages: [{ role: 'user', content: 'Hi' }] };
+
+        await expect(provider.chat(request)).rejects.toThrow(ProviderError);
+        await expect(provider.chat(request)).rejects.toHaveProperty('category', 'MODEL_UNAVAILABLE');
     });
 });

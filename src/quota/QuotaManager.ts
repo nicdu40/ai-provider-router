@@ -25,6 +25,7 @@ export class QuotaManager {
         lastErrorAt: undefined,
         lastRateLimitAt: undefined,
         cooldownUntil: undefined,
+        disabledUntilRestart: false,
         available: true
       });
     }
@@ -34,6 +35,7 @@ export class QuotaManager {
   isAvailable(provider: string): boolean {
     const u = this.ensure(provider);
     const now = Date.now();
+    if (u.disabledUntilRestart) return false;
     if (u.cooldownUntil && now < u.cooldownUntil) {
       return false;
     }
@@ -75,6 +77,12 @@ export class QuotaManager {
     u.lastRateLimitAt = now;
     const cd = cooldownMs ?? this.defaultCooldownMs;
     u.cooldownUntil = now + cd;
+    u.available = false;
+  }
+
+  recordModelUnavailable(provider: string) {
+    const u = this.ensure(provider);
+    u.disabledUntilRestart = true;
     u.available = false;
   }
 

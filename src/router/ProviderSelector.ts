@@ -5,7 +5,7 @@ export class ProviderSelector {
   constructor(
     private readonly providers: Provider[],
     private readonly quota?: QuotaManager
-  ) {}
+  ) { }
 
   async select(excludedProviders: ReadonlySet<string> = new Set()): Promise<Provider | null> {
     const availableProviders = await Promise.all(

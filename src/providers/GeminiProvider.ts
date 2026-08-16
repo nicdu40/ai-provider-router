@@ -56,7 +56,7 @@ export class GeminiProvider implements Provider {
   }
 
   async getModels(): Promise<ModelInfo[]> {
-    return [{ id: 'gemini-1.5-flash', object: 'model' }];
+    return [{ id: 'gemini-1.5-flash-latest', object: 'model' }];
   }
 
   async getHealth(): Promise<ProviderHealth> {
@@ -84,8 +84,8 @@ export class GeminiProvider implements Provider {
 
     let response: Response;
     try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+      response = await fetch( // Use the latest flash model
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -138,7 +138,7 @@ export class GeminiProvider implements Provider {
       id: `gemini-${Date.now()}`,
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
-      model: 'gemini-1.5-flash',
+      model: 'gemini-1.5-flash-latest',
       choices: [{ index: 0, message, finish_reason: candidate?.finishReason ?? 'stop' }],
       ...(usage ? { usage } : {})
     };
@@ -160,7 +160,7 @@ export class GeminiProvider implements Provider {
 
     try {
       response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:streamGenerateContent?alt=sse&key=${this.apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -175,7 +175,9 @@ export class GeminiProvider implements Provider {
     } catch (error) {
       throw createProviderErrorFromException(error, this.name());
     }
-    if (!response.ok) throw await createProviderErrorFromResponse(response, this.name());
+    if (!response.ok) {
+      throw await createProviderErrorFromResponse(response, this.name());
+    }
     yield* parseGeminiSse(response);
   }
 }

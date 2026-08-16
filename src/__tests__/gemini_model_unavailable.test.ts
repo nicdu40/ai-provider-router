@@ -56,10 +56,10 @@ test('Router falls back from Gemini MODEL_UNAVAILABLE, marks cooldown, and avoid
   assert.equal(resp.model, 'groq');
   assert.equal(gem.calls, 1);
   assert.equal(groq.calls, 1);
-  // Gemini should be marked unavailable (cooled down)
+  // Gemini should be marked unavailable (disabled)
   assert.equal(quota.isAvailable('gemini'), false);
 
-  // Next request should not call gemini again, only groq
+  // Next request should not call gemini again, only groq, because it's disabled
   const resp2 = await router.route(request);
   assert.equal(resp2.model, 'groq');
   assert.equal(gem.calls, 1);
