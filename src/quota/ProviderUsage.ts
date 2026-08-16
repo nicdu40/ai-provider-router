@@ -8,6 +8,8 @@ export interface ProviderUsage {
   lastRateLimitAt?: number;
   cooldownUntil?: number;
   available: boolean;
+  rateLimitInfo?: RateLimitInfo;
 }
 
 export default ProviderUsage;
+import type { RateLimitInfo } from './RateLimitInfo';

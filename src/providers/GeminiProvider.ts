@@ -1,5 +1,6 @@
 import { ChatRequest, ChatResponse, ModelInfo, Provider, ProviderHealth } from './Provider';
 import { createProviderErrorFromException, createProviderErrorFromResponse } from '../errors/createProviderError';
+import { parseGeminiSse } from './streaming';
 
 export class GeminiProvider implements Provider {
   public readonly priority = 100;
@@ -87,5 +88,23 @@ export class GeminiProvider implements Provider {
       ],
       ...(usage ? { usage } : {})
     };
+  }
+
+  async *streamChat(request: ChatRequest, signal?: AbortSignal) {
+    if (!(await this.isAvailable())) throw new Error('Gemini API key is missing');
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({
+          contents: request.messages.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })),
+          generationConfig: { temperature: request.temperature ?? 0.7 }
+        }) }
+      );
+    } catch (error) {
+      throw createProviderErrorFromException(error, this.name());
+    }
+    if (!response.ok) throw await createProviderErrorFromResponse(response, this.name());
+    yield* parseGeminiSse(response);
   }
 }

@@ -1,9 +1,14 @@
 import { ProviderError, ErrorCategory } from '../providers/ProviderError';
 import { classifyStatus } from '../router/ErrorClassifier';
+import type { RateLimitInfo } from '../quota/RateLimitInfo';
 
 const MAX_BODY_LENGTH = 200;
 
-export async function createProviderErrorFromResponse(respOrStatus: any, providerName: string): Promise<ProviderError> {
+export async function createProviderErrorFromResponse(
+  respOrStatus: any,
+  providerName: string,
+  rateLimitInfo?: RateLimitInfo
+): Promise<ProviderError> {
   let status: number | undefined;
   let bodyText: string | undefined;
 
@@ -32,6 +37,10 @@ export async function createProviderErrorFromResponse(respOrStatus: any, provide
   if (statusNum === 400) {
     category = 'BAD_REQUEST';
     retryable = false;
+  } else if (statusNum === 404 && /no longer available|not available to new users|model[s]?\/[\w-]+/i.test(bodyText ?? '')) {
+    // Specific case: provider reports the configured model is unavailable (observed for Gemini)
+    category = 'MODEL_UNAVAILABLE';
+    retryable = false;
   } else if (statusNum === 401 || statusNum === 403) {
     category = 'FATAL';
     retryable = false;
@@ -59,7 +68,25 @@ export async function createProviderErrorFromResponse(respOrStatus: any, provide
 
   const message = `HTTP ${statusNum ?? 'unknown'} ${snippet ? '- ' + snippet : ''}`.trim();
 
-  return new ProviderError(message, statusNum, providerName, category, retryable);
+  return new ProviderError(
+    message,
+    statusNum,
+    providerName,
+    category,
+    retryable,
+    rateLimitInfo,
+    extractProviderCode(bodyText)
+  );
+}
+
+function extractProviderCode(bodyText: string | undefined): string | undefined {
+  if (!bodyText) return undefined;
+  try {
+    const parsed = JSON.parse(bodyText);
+    return typeof parsed?.error?.code === 'string' ? parsed.error.code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function createProviderErrorFromException(error: unknown, providerName: string): ProviderError {

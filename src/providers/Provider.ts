@@ -14,6 +14,7 @@ export interface ChatRequest {
   model?: string;
   messages: ChatMessage[];
   temperature?: number;
+  stream?: boolean;
 }
 
 export interface ChatCompletionChoice {
@@ -33,6 +34,17 @@ export interface ChatResponse {
     completion_tokens?: number | null;
     total_tokens?: number | null;
   };
+  rateLimitInfo?: RateLimitInfo;
+}
+
+export interface ChatStreamChunk {
+  id?: string;
+  created?: number;
+  model?: string;
+  delta: Partial<ChatMessage>;
+  finish_reason?: string | null;
+  usage?: ChatResponse['usage'];
+  rateLimitInfo?: RateLimitInfo;
 }
 
 export interface ProviderHealth {
@@ -47,5 +59,7 @@ export interface Provider {
   isAvailable(): Promise<boolean>;
   getModels(): Promise<ModelInfo[]>;
   chat(request: ChatRequest): Promise<ChatResponse>;
+  streamChat?(request: ChatRequest, signal?: AbortSignal): AsyncIterable<ChatStreamChunk>;
   getHealth(): Promise<ProviderHealth>;
 }
+import type { RateLimitInfo } from '../quota/RateLimitInfo';

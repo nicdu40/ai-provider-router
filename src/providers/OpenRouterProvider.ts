@@ -1,5 +1,7 @@
 import { ChatRequest, ChatResponse, ModelInfo, Provider, ProviderHealth } from './Provider';
 import { createProviderErrorFromException, createProviderErrorFromResponse } from '../errors/createProviderError';
+import { parseRetryAfterRateLimitInfo } from '../quota/RateLimitInfo';
+import { parseOpenAiSse } from './streaming';
 
 export class OpenRouterProvider implements Provider {
   public readonly priority = 80;
@@ -51,8 +53,9 @@ export class OpenRouterProvider implements Provider {
       throw createProviderErrorFromException(error, this.name());
     }
 
+    const rateLimitInfo = parseRetryAfterRateLimitInfo(response.headers);
     if (!response.ok) {
-      throw await createProviderErrorFromResponse(response, this.name());
+      throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
     }
 
     const payload = await response.json() as any;
@@ -70,7 +73,25 @@ export class OpenRouterProvider implements Provider {
           finish_reason: payload?.choices?.[0]?.finish_reason ?? 'stop'
         }
       ],
-      ...(payload?.usage ? { usage: payload.usage } : {})
+      ...(payload?.usage ? { usage: payload.usage } : {}),
+      ...(rateLimitInfo ? { rateLimitInfo } : {})
     };
+  }
+
+  async *streamChat(request: ChatRequest, signal?: AbortSignal) {
+    if (!(await this.isAvailable())) throw new Error('OpenRouter API key is missing');
+    let response: Response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST', signal,
+        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'http://localhost:3040', 'X-Title': 'AI Provider Router' },
+        body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: request.messages, temperature: request.temperature ?? 0.7, stream: true })
+      });
+    } catch (error) {
+      throw createProviderErrorFromException(error, this.name());
+    }
+    const rateLimitInfo = parseRetryAfterRateLimitInfo(response.headers);
+    if (!response.ok) throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
+    yield* parseOpenAiSse(response, rateLimitInfo);
   }
 }

@@ -1,5 +1,6 @@
 import ProviderUsage from './ProviderUsage';
 import config from '../config/config';
+import type { RateLimitInfo } from './RateLimitInfo';
 
 export interface QuotaManagerOptions {
   defaultCooldownMs?: number;
@@ -43,7 +44,9 @@ export class QuotaManager {
       u.available = true;
     }
 
-    return u.available;
+    if (!u.available) return false;
+
+    return !hasActiveObservedExhaustion(u, now);
   }
 
   recordRequest(provider: string) {
@@ -75,6 +78,16 @@ export class QuotaManager {
     u.available = false;
   }
 
+  recordRateLimitInfo(provider: string, info: RateLimitInfo): void {
+    const u = this.ensure(provider);
+    u.rateLimitInfo = {
+      observedAt: info.observedAt,
+      ...(info.retryAfterMs !== undefined ? { retryAfterMs: info.retryAfterMs } : {}),
+      ...(info.requests ? { requests: { ...info.requests } } : {}),
+      ...(info.tokens ? { tokens: { ...info.tokens } } : {})
+    };
+  }
+
   getStatus(provider: string): ProviderUsage {
     return { ...this.ensure(provider) };
   }
@@ -82,6 +95,20 @@ export class QuotaManager {
   getAllStatuses(): ProviderUsage[] {
     return Array.from(this.usages.values()).map(u => ({ ...u }));
   }
+}
+
+function hasActiveObservedExhaustion(usage: ProviderUsage, now: number): boolean {
+  return isExhaustedUntilReset(usage.rateLimitInfo?.requests, now)
+    || isExhaustedUntilReset(usage.rateLimitInfo?.tokens, now);
+}
+
+function isExhaustedUntilReset(
+  window: RateLimitInfo['requests'] | undefined,
+  now: number
+): boolean {
+  return window?.remaining === 0
+    && window.resetAt !== undefined
+    && window.resetAt > now;
 }
 
 export default QuotaManager;

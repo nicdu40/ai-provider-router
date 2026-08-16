@@ -39,6 +39,10 @@ export class MockProvider implements Provider {
     };
   }
 
+  async *streamChat(request: ChatRequest): AsyncIterable<import('./Provider').ChatStreamChunk> {
+    yield { id: `mock-${Date.now()}`, created: Math.floor(Date.now() / 1000), model: request.model ?? 'router-auto', delta: { role: 'assistant', content: 'Mock provider response' }, finish_reason: 'stop' };
+  }
+
   async getHealth(): Promise<ProviderHealth> {
     return {
       status: 'healthy',

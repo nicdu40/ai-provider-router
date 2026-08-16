@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import request from 'supertest';
 
-import { app } from '../server/server';
+import { createApp } from '../server/server';
 import { MockProvider } from '../providers/MockProvider';
 import { Provider } from '../providers/Provider';
 import { ProviderSelector } from '../router/ProviderSelector';
@@ -66,7 +66,7 @@ test('ProviderSelector does not select an unavailable provider', async () => {
 });
 
 test('POST /v1/chat/completions routes through Router and MockProvider', async () => {
-  const response = await request(app)
+  const response = await request(createApp([new MockProvider()]))
     .post('/v1/chat/completions')
     .send({
       model: 'router-auto',

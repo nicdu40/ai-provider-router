@@ -1,5 +1,7 @@
 import { ChatRequest, ChatResponse, ModelInfo, Provider, ProviderHealth } from './Provider';
 import { createProviderErrorFromException, createProviderErrorFromResponse } from '../errors/createProviderError';
+import { parseGroqRateLimitInfo } from '../quota/RateLimitInfo';
+import { parseOpenAiSse } from './streaming';
 
 export class GroqProvider implements Provider {
   public readonly priority = 90;
@@ -49,8 +51,9 @@ export class GroqProvider implements Provider {
       throw createProviderErrorFromException(error, this.name());
     }
 
+    const rateLimitInfo = parseGroqRateLimitInfo(response.headers);
     if (!response.ok) {
-      throw await createProviderErrorFromResponse(response, this.name());
+      throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
     }
 
     const payload = await response.json() as any;
@@ -68,7 +71,25 @@ export class GroqProvider implements Provider {
           finish_reason: payload?.choices?.[0]?.finish_reason ?? 'stop'
         }
       ],
-      ...(payload?.usage ? { usage: payload.usage } : {})
+      ...(payload?.usage ? { usage: payload.usage } : {}),
+      rateLimitInfo
     };
+  }
+
+  async *streamChat(request: ChatRequest, signal?: AbortSignal) {
+    if (!(await this.isAvailable())) throw new Error('Groq API key is missing');
+    let response: Response;
+    try {
+      response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST', signal,
+        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: request.messages, temperature: request.temperature ?? 0.7, stream: true, stream_options: { include_usage: true } })
+      });
+    } catch (error) {
+      throw createProviderErrorFromException(error, this.name());
+    }
+    const rateLimitInfo = parseGroqRateLimitInfo(response.headers);
+    if (!response.ok) throw await createProviderErrorFromResponse(response, this.name(), rateLimitInfo);
+    yield* parseOpenAiSse(response, rateLimitInfo);
   }
 }

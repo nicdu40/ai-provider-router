@@ -20,6 +20,7 @@ export interface ChatCompletionRequest {
   model?: string;
   messages: ChatMessage[];
   temperature?: number;
+  stream?: boolean;
 }
 
 export interface ChatCompletionChoice {

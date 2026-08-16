@@ -1,6 +1,6 @@
 import config from '../config/config';
 
-export type ErrorCategory = 'FATAL' | 'RETRYABLE' | 'TIMEOUT' | 'UNKNOWN' | 'BAD_REQUEST';
+export type ErrorCategory = 'FATAL' | 'RETRYABLE' | 'TIMEOUT' | 'UNKNOWN' | 'BAD_REQUEST' | 'MODEL_UNAVAILABLE';
 
 export function classifyStatus(status?: number): ErrorCategory {
   if (typeof status !== 'number' || Number.isNaN(status)) return 'UNKNOWN';

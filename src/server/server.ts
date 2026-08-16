@@ -5,35 +5,30 @@ import { GeminiProvider } from '../providers/GeminiProvider';
 import { GroqProvider } from '../providers/GroqProvider';
 import { MockProvider } from '../providers/MockProvider';
 import { OpenRouterProvider } from '../providers/OpenRouterProvider';
-import { Provider } from '../providers/Provider';
+import { ChatStreamChunk, Provider } from '../providers/Provider';
 import { Router } from '../router/Router';
+import { QuotaManager } from '../quota/QuotaManager';
 import { ChatCompletionRequest, ChatRequest } from '../types';
 
-const app = express();
-app.use(express.json());
+function createConfiguredProviders(): Provider[] {
+  const providers: Provider[] = [];
+  if (config.providers.gemini.enabled) providers.push(new GeminiProvider(process.env.GEMINI_API_KEY ?? ''));
+  if (config.providers.groq.enabled) providers.push(new GroqProvider(process.env.GROQ_API_KEY ?? ''));
+  if (config.providers.openrouter.enabled) providers.push(new OpenRouterProvider(process.env.OPENROUTER_API_KEY ?? ''));
 
-const providers: Provider[] = [];
-
-if (config.providers.gemini.enabled) {
-  providers.push(new GeminiProvider(process.env.GEMINI_API_KEY ?? ''));
+  if (providers.length === 0) {
+    providers.push(new MockProvider());
+    logger.warn('No external providers configured or keys missing. Router is falling back to MockProvider.');
+  }
+  return providers;
 }
 
-if (config.providers.groq.enabled) {
-  providers.push(new GroqProvider(process.env.GROQ_API_KEY ?? ''));
-}
+export function createApp(providers?: Provider[], quotaManager?: QuotaManager) {
+  const app = express();
+  app.use(express.json());
+  const router = new Router(providers ?? createConfiguredProviders(), quotaManager);
 
-if (config.providers.openrouter.enabled) {
-  providers.push(new OpenRouterProvider(process.env.OPENROUTER_API_KEY ?? ''));
-}
-
-if (providers.length === 0) {
-  providers.push(new MockProvider());
-  logger.warn('No external providers configured or keys missing. Router is falling back to MockProvider.');
-}
-
-const router = new Router(providers);
-
-app.get('/v1/models', async (_req, res) => {
+  app.get('/v1/models', async (_req, res) => {
   logger.info('GET /v1/models');
 
   const models = await router.getModels();
@@ -41,10 +36,10 @@ app.get('/v1/models', async (_req, res) => {
   return res.json({
     data: models
   });
-});
+  });
 
-app.post('/v1/chat/completions', async (req, res) => {
-  logger.info('Request received: POST /v1/chat/completions');
+  app.post('/v1/chat/completions', async (req, res) => {
+  logger.master('created', { method: 'POST', path: '/v1/chat/completions' });
   const body = req.body as ChatCompletionRequest;
 
   if (!body || !Array.isArray(body.messages)) {
@@ -56,21 +51,110 @@ app.post('/v1/chat/completions', async (req, res) => {
     const request: ChatRequest = {
       model: body.model || 'router-auto',
       messages: body.messages,
-      temperature: body.temperature
+      temperature: body.temperature,
+      stream: body.stream === true
     };
+
+    if (request.stream) {
+      return streamResponse(router, request, body.messages.length, req, res);
+    }
 
     const response = await router.route(request);
 
-    logger.info(`Provider selected: ${response.model ?? 'router-auto'}`);
-    logger.info(`Request summary: ${body.messages.length} messages`);
+    logger.master('summary', { messages: body.messages.length });
+
+    logger.router('response', { provider: response.model ?? 'router-auto', status: 200 });
 
     return res.json(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error(`Router error: ${errorMessage}`);
-    return res.status(503).json({ error: 'No available provider' });
+    logger.router('error', { message: errorMessage, status: 503 });
+    return res.status(503).json({
+      error: {
+        message: errorMessage,
+        type: 'server_error',
+        code: 'provider_unavailable'
+      }
+    });
   }
-});
+  });
+
+  return app;
+}
+
+async function streamResponse(
+  router: Router,
+  request: ChatRequest,
+  messageCount: number,
+  req: express.Request,
+  res: express.Response
+): Promise<void> {
+  const controller = new AbortController();
+  const abortOnClose = () => {
+    if (!res.writableEnded) controller.abort();
+  };
+  res.once('close', abortOnClose);
+  let started = false;
+
+  try {
+    for await (const chunk of router.routeStream(request, controller.signal)) {
+      if (controller.signal.aborted) return;
+      if (!started) {
+        res.status(200);
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+        started = true;
+      }
+      res.write(`data: ${JSON.stringify(toOpenAiStreamChunk(chunk, request))}\n\n`);
+    }
+    if (started && !controller.signal.aborted) {
+      res.write('data: [DONE]\n\n');
+      logger.router('stream_completed', { messages: messageCount });
+      res.end();
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown stream error';
+    logger.router('error', { message: errorMessage, status: 500 });
+    if (!started) {
+      logger.router('response', { status: 503 });
+      res.status(503).json(openAiError(errorMessage));
+      return;
+    }
+    if (!controller.signal.aborted) {
+      res.write(`data: ${JSON.stringify(streamErrorChunk(errorMessage, request))}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  } finally {
+    res.off('close', abortOnClose);
+  }
+}
+
+function toOpenAiStreamChunk(chunk: ChatStreamChunk, request: ChatRequest) {
+  return {
+    id: chunk.id ?? `chatcmpl-${Date.now()}`,
+    object: 'chat.completion.chunk',
+    created: chunk.created ?? Math.floor(Date.now() / 1000),
+    model: chunk.model ?? request.model ?? 'router-auto',
+    choices: [{ index: 0, delta: chunk.delta, finish_reason: chunk.finish_reason ?? null }],
+    ...(chunk.usage ? { usage: chunk.usage } : {})
+  };
+}
+
+function streamErrorChunk(message: string, request: ChatRequest) {
+  return {
+    ...toOpenAiStreamChunk({ delta: { content: '' }, finish_reason: 'error' }, request),
+    error: { message, type: 'server_error', code: 'stream_interrupted' }
+  };
+}
+
+function openAiError(message: string) {
+  return { error: { message, type: 'server_error', code: 'provider_unavailable' } };
+}
+
+const app = createApp();
 
 if (require.main === module) {
   const port = config.server.port || 3040;
